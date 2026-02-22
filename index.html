@@ -1,28 +1,63 @@
+import portpicker
+import threading
+import http.server
+import socketserver
+from google.colab import output
+
+# --- ここからHTML/JS ---
+html_content = """
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>わにわにパニック Ver 1.7.2</title>
+    <title>わにわにパニック Ver 1.7.5</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;900&display=swap');
         
         body { 
-            margin: 0; padding: 0; background: #222; 
-            display: flex; justify-content: center; align-items: center; 
-            height: 100vh; font-family: 'M PLUS Rounded 1c', sans-serif; 
-            overflow: hidden; touch-action: none;
+            margin: 0; 
+            padding: 0; 
+            background: #222; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            height: 100dvh; /* ブラウザのメニューバーを除いた高さいっぱい */
+            font-family: 'M PLUS Rounded 1c', sans-serif; 
+            overflow: hidden;
+            
+            /* ★スマホ・タブレットでの誤動作を完全に防止する設定 */
+            -webkit-tap-highlight-color: transparent; /* タップ時の青いハイライトを消す */
+            -webkit-touch-callout: none;              /* 長押しメニューを無効化 */
+            -webkit-user-select: none;                /* テキストや要素の選択を無効化 */
+            user-select: none;
+            touch-action: none;                       /* ダブルタップズームなどを防止 */
         }
 
         #smartphone-frame { 
             position: relative; 
-            width: 95vw; height: calc(95vw * (9/16));
-            max-width: 800px; max-height: 450px;
-            background: #111; border: 6px solid #444; 
-            border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            
+            /* ★iPadでも崩れない最強のレスポンシブ設定 (16:9を強制維持) */
+            width: 100vw; 
+            height: 100dvh;
+            max-width: calc(100dvh * 16 / 9); 
+            max-height: calc(100vw * 9 / 16);
+            box-sizing: border-box; /* 枠線がはみ出ないようにする */
+            
+            background: #111; 
+            border: 2px solid #333;
+            overflow: hidden; 
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            margin: auto;
         }
 
-        canvas { width: 100%; height: 100%; display: block; background: #1a1a1a; }
+        canvas { 
+            width: 100%; 
+            height: 100%; 
+            display: block; 
+            background: #1a1a1a; 
+        }
 
         .screen { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
@@ -35,6 +70,7 @@
             background: #ff4757; color: #fff; border: none; padding: 15px 45px; 
             border-radius: 50px; font-size: 1.4rem; font-weight: 900; cursor: pointer; 
             box-shadow: 0 6px 0 #c0392b; margin: 10px; transition: 0.1s;
+            -webkit-tap-highlight-color: transparent;
         }
         .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #c0392b; }
         
@@ -53,7 +89,7 @@
         }
         #game-quit-btn {
             position: absolute; top: 10px; left: 10px; pointer-events: auto;
-            background: #555; color: white; border: none; padding: 10px 15px;
+            background: rgba(255,255,255,0.2); color: white; border: none; padding: 10px 15px;
             border-radius: 12px; font-weight: 900; cursor: pointer;
         }
 
@@ -71,7 +107,7 @@
         <h1 style="font-size: 3.2rem; color: #ff4757; text-shadow: 3px 3px 0 #fff;">わにわにパニック</h1>
         <p style="font-size: 1.2rem; margin-bottom: 20px;">BEST SCORE: <span id="title-highscore">0</span></p>
         <button class="btn" onclick="GameEngine.changeScreen('screen-mode')">スタート！</button>
-        <div style="font-size: 0.8rem; opacity: 0.5; margin-top: 20px;">Ver 1.7.2 (Fix Draw)</div>
+        <div style="font-size: 0.8rem; opacity: 0.5; margin-top: 20px;">Ver 1.7.5 iPad/iOS Fix</div>
     </div>
 
     <div id="screen-mode" class="screen">
@@ -110,26 +146,51 @@
 
 <script>
 /**
- * --- 【1. パラメータ設定】 ---
+ * =========================================================
+ * 【ゲーム設定パラメータ】
+ * ここを変更することで、ゲームのバランスを簡単に調整できます。
+ * ロジックと分離しているので、デグレのリスクなく変更可能です。
+ * =========================================================
  */
 const CONFIG = {
+    // 1ゲームのプレイ時間（秒）
     GAME_TIME: 20,
+    
+    // 画面に出すワニの数
     WANI_COUNT: 5,
+    
+    // 難易度ごとの設定
     LEVELS: {
-        easy:   { spawnRate: 0.015, upTime: 1200, points: 100 },
-        normal: { spawnRate: 0.030, upTime: 800,  points: 150 },
-        hard:   { spawnRate: 0.060, upTime: 500,  points: 300 }
+        easy: { 
+            spawnRate: 0.015, // ワニの出現確率
+            upTime: 1200,     // 穴から出ている時間（ミリ秒）
+            points: 100       // 叩いた時にもらえる点数
+        },
+        normal: { 
+            spawnRate: 0.030, 
+            upTime: 800,  
+            points: 150 
+        },
+        hard: { 
+            spawnRate: 0.060, 
+            upTime: 500,  
+            points: 300 
+        }
     },
+    
+    // アニメーションの速度・位置設定
     ANIM: {
-        UP_SPEED: 0.25,
-        DOWN_SPEED: 0.15,
-        WANI_POP_Y: 240, // 出現時の目標Y座標（下方向）
-        WANI_HIDE_Y: 40  // 待機時の目標Y座標（穴より上＝完全に隠れる）
+        UP_SPEED: 0.25,      // 飛び出すスピード
+        DOWN_SPEED: 0.15,    // 引っ込むスピード
+        WANI_POP_Y: 240,     // 出現時の目標Y座標（手前へ飛び出す位置）
+        WANI_HIDE_Y: 40      // 待機時の目標Y座標（穴の奥へ隠れる位置）
     }
 };
+/* ========================================================= */
 
 /**
- * --- 【2. ゲームロジック】 ---
+ * --- 【ゲームのメインロジック】 ---
+ * ※ここは変更しないでください
  */
 const GameEngine = {
     canvas: document.getElementById('mainCanvas'),
@@ -147,11 +208,13 @@ const GameEngine = {
         
         const handleInput = (e) => {
             if(this.state !== 'playing') return;
+            // 画面の拡大縮小に対応した座標計算
             const rect = this.canvas.getBoundingClientRect();
             const x = (e.clientX - rect.left) * (this.canvas.width / rect.width);
             const y = (e.clientY - rect.top) * (this.canvas.height / rect.height);
             this.handleHit(x, y);
         };
+        // iOSでのレスポンスを最速にするため pointerdown を採用
         this.canvas.addEventListener('pointerdown', handleInput);
         
         this.changeScreen('screen-title');
@@ -176,8 +239,8 @@ const GameEngine = {
         this.score = 0;
         this.timeLeft = CONFIG.GAME_TIME;
         this.resetWanis();
-
-        // ★修正点：開始時にキャンバスを完全にクリア＆塗りつぶし（残像対策）
+        
+        // 残像対策：開始時にキャンバスをクリア
         this.ctx.fillStyle = "#1a1a1a";
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
@@ -192,8 +255,8 @@ const GameEngine = {
     resetWanis() {
         this.wanis = Array.from({length: CONFIG.WANI_COUNT}, (_, i) => ({
             x: 120 + i * 140,
-            baseY: 120,      // 穴のY座標
-            currentY: CONFIG.ANIM.WANI_HIDE_Y, // 最初は完全に隠れた状態
+            baseY: 120,
+            currentY: CONFIG.ANIM.WANI_HIDE_Y,
             targetY: CONFIG.ANIM.WANI_HIDE_Y,
             state: 'down',
             timer: 0
@@ -205,8 +268,7 @@ const GameEngine = {
         const layer = document.getElementById('countdown-layer');
         const num = document.getElementById('count-num');
         layer.style.display = 'flex';
-        let c = 3;
-        num.innerText = c;
+        let c = 3; num.innerText = c;
         
         const cd = setInterval(() => {
             c--;
@@ -216,7 +278,7 @@ const GameEngine = {
                 layer.style.display = 'none';
                 this.state = 'playing';
                 this.startTimer();
-                this.loop(); // ここで初めて描画ループを回す
+                this.loop();
             }
         }, 900);
     },
@@ -227,9 +289,7 @@ const GameEngine = {
             if(this.state !== 'playing') return;
             this.timeLeft--;
             document.getElementById('ui-time').innerText = Math.max(0, this.timeLeft);
-            if(this.timeLeft <= 0) {
-                this.endGame();
-            }
+            if(this.timeLeft <= 0) this.endGame();
         }, 1000);
     },
 
@@ -244,13 +304,14 @@ const GameEngine = {
         this.wanis.forEach(w => {
             if(w.state === 'up') {
                 const dx = x - w.x;
-                const dy = y - (w.currentY + 40); // 頭の中心で判定
+                const dy = y - (w.currentY + 40);
                 if(Math.abs(dx) < 60 && Math.abs(dy) < 60) {
                     w.state = 'hit';
-                    w.targetY = CONFIG.ANIM.WANI_HIDE_Y; // 叩かれたら奥へ隠れる
+                    w.targetY = CONFIG.ANIM.WANI_HIDE_Y;
                     w.timer = 200;
                     this.score += CONFIG.LEVELS[this.currentLevel].points;
                     document.getElementById('ui-score').innerText = this.score;
+                    // バイブレーション（対応機種のみ）
                     if(navigator.vibrate) navigator.vibrate(50);
                 }
             }
@@ -270,11 +331,12 @@ const GameEngine = {
         }
         document.getElementById('new-record-label').style.display = isNew ? 'block' : 'none';
         
+        // デッドロック回避のために少し遅延させて表示
         setTimeout(() => this.changeScreen('screen-result'), 100);
     },
 
-    retry() {
-        this.startGame(this.currentLevel);
+    retry() { 
+        this.startGame(this.currentLevel); 
     },
 
     loop() {
@@ -291,19 +353,18 @@ const GameEngine = {
             if(idles.length > 0) {
                 const w = idles[Math.floor(Math.random()*idles.length)];
                 w.state = 'up';
-                w.targetY = CONFIG.ANIM.WANI_POP_Y; // 手前へ飛び出す
+                w.targetY = CONFIG.ANIM.WANI_POP_Y;
                 w.timer = conf.upTime;
             }
         }
-
         this.wanis.forEach(w => {
             let speed = (w.state === 'up') ? CONFIG.ANIM.UP_SPEED : CONFIG.ANIM.DOWN_SPEED;
             w.currentY += (w.targetY - w.currentY) * speed;
             if(w.state !== 'down') {
                 w.timer -= 16;
-                if(w.timer <= 0) {
-                    w.state = 'down';
-                    w.targetY = CONFIG.ANIM.WANI_HIDE_Y;
+                if(w.timer <= 0) { 
+                    w.state = 'down'; 
+                    w.targetY = CONFIG.ANIM.WANI_HIDE_Y; 
                 }
             }
         });
@@ -312,7 +373,7 @@ const GameEngine = {
     draw() {
         const ctx = this.ctx;
         ctx.clearRect(0,0,800,450);
-
+        
         // 奥の壁
         ctx.fillStyle = "#333";
         ctx.fillRect(0, 0, 800, 120);
@@ -324,25 +385,25 @@ const GameEngine = {
             ctx.ellipse(w.x, w.baseY, 60, 25, 0, 0, Math.PI*2);
             ctx.fill();
 
+            // クリッピング処理
             ctx.save();
             ctx.beginPath();
-            // ★クリッピングを「穴の中心より手前（下）」に限定
-            ctx.rect(w.x - 70, w.baseY, 140, 300); 
+            ctx.rect(w.x - 70, w.baseY, 140, 300);
             ctx.clip();
 
-            // ★浮き解消：胴体を穴の底(baseY)から頭(currentY)まで繋げる
+            // ワニの胴体
             ctx.fillStyle = (w.state === 'hit') ? "#f00" : "#2a2";
             let bodyH = w.currentY - w.baseY;
             if(bodyH > 0) {
                 ctx.fillRect(w.x - 45, w.baseY, 90, bodyH);
             }
-
-            // 頭の描画
+            
+            // ワニの頭
             ctx.beginPath();
             ctx.roundRect(w.x - 45, w.currentY, 90, 80, [10, 10, 40, 40]);
             ctx.fill();
 
-            // 少しワニっぽく顔を配置
+            // 目
             ctx.fillStyle = "#fff";
             ctx.beginPath(); ctx.arc(w.x - 20, w.currentY + 25, 12, 0, Math.PI*2); ctx.fill();
             ctx.beginPath(); ctx.arc(w.x + 20, w.currentY + 25, 12, 0, Math.PI*2); ctx.fill();
@@ -350,10 +411,11 @@ const GameEngine = {
             ctx.beginPath(); ctx.arc(w.x - 20, w.currentY + 25, 4, 0, Math.PI*2); ctx.fill();
             ctx.beginPath(); ctx.arc(w.x + 20, w.currentY + 25, 4, 0, Math.PI*2); ctx.fill();
 
-            // 口（赤い部分）
+            // 口
             ctx.fillStyle = "#e74c3c";
             ctx.beginPath(); ctx.roundRect(w.x - 30, w.currentY + 50, 60, 20, 10); ctx.fill();
 
+            // ヒット時のエフェクト
             if(w.state === 'hit') {
                 ctx.fillStyle = "#fff";
                 ctx.font = "bold 25px Arial";
@@ -368,7 +430,20 @@ const GameEngine = {
     }
 };
 
+// エンジン起動
 GameEngine.init();
 </script>
 </body>
 </html>
+"""
+
+with open("index.html", "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+port = portpicker.pick_unused_port()
+def start_server():
+    with socketserver.TCPServer(("", port), http.server.SimpleHTTPRequestHandler) as httpd:
+        httpd.serve_forever()
+
+threading.Thread(target=start_server, daemon=True).start()
+output.serve_kernel_port_as_window(port, path='/index.html')
