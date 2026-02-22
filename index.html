@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>わにわにパニック Ver 1.7.2</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;900&display=swap');
+        
+        body { 
+            margin: 0; padding: 0; background: #222; 
+            display: flex; justify-content: center; align-items: center; 
+            height: 100vh; font-family: 'M PLUS Rounded 1c', sans-serif; 
+            overflow: hidden; touch-action: none;
+        }
+
+        #smartphone-frame { 
+            position: relative; 
+            width: 95vw; height: calc(95vw * (9/16));
+            max-width: 800px; max-height: 450px;
+            background: #111; border: 6px solid #444; 
+            border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+        }
+
+        canvas { width: 100%; height: 100%; display: block; background: #1a1a1a; }
+
+        .screen { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 200; background: rgba(0, 0, 0, 0.85); color: white;
+            backdrop-filter: blur(8px);
+        }
+
+        .btn { 
+            background: #ff4757; color: #fff; border: none; padding: 15px 45px; 
+            border-radius: 50px; font-size: 1.4rem; font-weight: 900; cursor: pointer; 
+            box-shadow: 0 6px 0 #c0392b; margin: 10px; transition: 0.1s;
+        }
+        .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #c0392b; }
+        
+        #hud { 
+            position: absolute; top: 15px; width: 100%; 
+            display: flex; justify-content: space-around; z-index: 100; pointer-events: none; 
+        }
+        .hud-text { 
+            background: #fff; padding: 8px 25px; border-radius: 50px; 
+            color: #333; font-weight: 900; border: 3px solid #ff4757;
+        }
+
+        #ui-ingame { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            pointer-events: none; z-index: 150; display: none;
+        }
+        #game-quit-btn {
+            position: absolute; top: 10px; left: 10px; pointer-events: auto;
+            background: #555; color: white; border: none; padding: 10px 15px;
+            border-radius: 12px; font-weight: 900; cursor: pointer;
+        }
+
+        #countdown-layer { 
+            position: absolute; top:0; left:0; width:100%; height:100%; 
+            z-index: 180; display:none; flex-direction:column; justify-content:center; align-items:center; 
+        }
+        #count-num { font-size: 10rem; color: #ffeb3b; text-shadow: 0 10px 0 #f57f17; }
+    </style>
+</head>
+<body>
+
+<div id="smartphone-frame">
+    <div id="screen-title" class="screen" style="display: flex;">
+        <h1 style="font-size: 3.2rem; color: #ff4757; text-shadow: 3px 3px 0 #fff;">わにわにパニック</h1>
+        <p style="font-size: 1.2rem; margin-bottom: 20px;">BEST SCORE: <span id="title-highscore">0</span></p>
+        <button class="btn" onclick="GameEngine.changeScreen('screen-mode')">スタート！</button>
+        <div style="font-size: 0.8rem; opacity: 0.5; margin-top: 20px;">Ver 1.7.2 (Fix Draw)</div>
+    </div>
+
+    <div id="screen-mode" class="screen">
+        <h2 style="color:#ffeb3b; font-size: 2rem; margin-bottom: 25px;">難易度を選んでね</h2>
+        <div style="display: flex;">
+            <button class="btn" onclick="GameEngine.startGame('easy')" style="background:#2ed573; box-shadow:0 6px 0 #26af5a;">かんたん</button>
+            <button class="btn" onclick="GameEngine.startGame('normal')" style="background:#ffa502; box-shadow:0 6px 0 #e67e22;">ふつう</button>
+            <button class="btn" onclick="GameEngine.startGame('hard')" style="background:#ff4757; box-shadow:0 6px 0 #c0392b;">じごく</button>
+        </div>
+        <button onclick="GameEngine.changeScreen('screen-title')" style="color:#aaa; margin-top:20px; background:none; border:none; text-decoration:underline; cursor:pointer;">タイトルにもどる</button>
+    </div>
+
+    <div id="ui-ingame">
+        <button id="game-quit-btn" onclick="GameEngine.quitToTitle()">🏠 中断</button>
+        <div id="hud">
+            <div class="hud-text">SCORE: <span id="ui-score">0</span></div>
+            <div class="hud-text">TIME: <span id="ui-time">20</span></div>
+        </div>
+        <div id="countdown-layer">
+            <div id="count-num">3</div>
+        </div>
+    </div>
+
+    <div id="screen-result" class="screen">
+        <h2 style="color:#ffeb3b; font-size:3.5rem; margin-bottom:10px;">★ 結果発表 ★</h2>
+        <p style="font-size:1.8rem; margin-bottom:5px;">今回のスコア: <span id="final-score" style="color:#ff4757; font-weight:900;">0</span></p>
+        <div id="new-record-label" style="color:#2ed573; font-size:1.5rem; font-weight:900; margin-bottom:20px; display:none;">🏆 NEW RECORD! 🏆</div>
+        <div style="display:flex;">
+            <button class="btn" onclick="GameEngine.retry()">リトライ</button>
+            <button class="btn" onclick="GameEngine.changeScreen('screen-title')" style="background:#555; box-shadow:0 6px 0 #333;">タイトル</button>
+        </div>
+    </div>
+
+    <canvas id="mainCanvas" width="800" height="450"></canvas>
+</div>
+
+<script>
+/**
+ * --- 【1. パラメータ設定】 ---
+ */
+const CONFIG = {
+    GAME_TIME: 20,
+    WANI_COUNT: 5,
+    LEVELS: {
+        easy:   { spawnRate: 0.015, upTime: 1200, points: 100 },
+        normal: { spawnRate: 0.030, upTime: 800,  points: 150 },
+        hard:   { spawnRate: 0.060, upTime: 500,  points: 300 }
+    },
+    ANIM: {
+        UP_SPEED: 0.25,
+        DOWN_SPEED: 0.15,
+        WANI_POP_Y: 240, // 出現時の目標Y座標（下方向）
+        WANI_HIDE_Y: 40  // 待機時の目標Y座標（穴より上＝完全に隠れる）
+    }
+};
+
+/**
+ * --- 【2. ゲームロジック】 ---
+ */
+const GameEngine = {
+    canvas: document.getElementById('mainCanvas'),
+    ctx: document.getElementById('mainCanvas').getContext('2d'),
+    state: 'idle',
+    score: 0,
+    timeLeft: 0,
+    wanis: [],
+    highScore: localStorage.getItem('wani_v1_7_best') || 0,
+    aniId: null,
+    timerId: null,
+
+    init() {
+        document.getElementById('title-highscore').innerText = this.highScore;
+        
+        const handleInput = (e) => {
+            if(this.state !== 'playing') return;
+            const rect = this.canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * (this.canvas.width / rect.width);
+            const y = (e.clientY - rect.top) * (this.canvas.height / rect.height);
+            this.handleHit(x, y);
+        };
+        this.canvas.addEventListener('pointerdown', handleInput);
+        
+        this.changeScreen('screen-title');
+    },
+
+    changeScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
+        document.getElementById('ui-ingame').style.display = 'none';
+        
+        const target = document.getElementById(id);
+        if(target) target.style.display = 'flex';
+
+        if(id === 'screen-title') {
+            this.state = 'idle';
+            this.resetWanis();
+            document.getElementById('title-highscore').innerText = this.highScore;
+        }
+    },
+
+    startGame(level) {
+        this.currentLevel = level;
+        this.score = 0;
+        this.timeLeft = CONFIG.GAME_TIME;
+        this.resetWanis();
+
+        // ★修正点：開始時にキャンバスを完全にクリア＆塗りつぶし（残像対策）
+        this.ctx.fillStyle = "#1a1a1a";
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        document.getElementById('ui-score').innerText = this.score;
+        document.getElementById('ui-time').innerText = this.timeLeft;
+        
+        this.changeScreen('none');
+        document.getElementById('ui-ingame').style.display = 'block';
+        this.startCountdown();
+    },
+
+    resetWanis() {
+        this.wanis = Array.from({length: CONFIG.WANI_COUNT}, (_, i) => ({
+            x: 120 + i * 140,
+            baseY: 120,      // 穴のY座標
+            currentY: CONFIG.ANIM.WANI_HIDE_Y, // 最初は完全に隠れた状態
+            targetY: CONFIG.ANIM.WANI_HIDE_Y,
+            state: 'down',
+            timer: 0
+        }));
+    },
+
+    startCountdown() {
+        this.state = 'countdown';
+        const layer = document.getElementById('countdown-layer');
+        const num = document.getElementById('count-num');
+        layer.style.display = 'flex';
+        let c = 3;
+        num.innerText = c;
+        
+        const cd = setInterval(() => {
+            c--;
+            if(c > 0) num.innerText = c;
+            else {
+                clearInterval(cd);
+                layer.style.display = 'none';
+                this.state = 'playing';
+                this.startTimer();
+                this.loop(); // ここで初めて描画ループを回す
+            }
+        }, 900);
+    },
+
+    startTimer() {
+        if(this.timerId) clearInterval(this.timerId);
+        this.timerId = setInterval(() => {
+            if(this.state !== 'playing') return;
+            this.timeLeft--;
+            document.getElementById('ui-time').innerText = Math.max(0, this.timeLeft);
+            if(this.timeLeft <= 0) {
+                this.endGame();
+            }
+        }, 1000);
+    },
+
+    quitToTitle() {
+        this.state = 'idle';
+        if(this.timerId) clearInterval(this.timerId);
+        if(this.aniId) cancelAnimationFrame(this.aniId);
+        this.changeScreen('screen-title');
+    },
+
+    handleHit(x, y) {
+        this.wanis.forEach(w => {
+            if(w.state === 'up') {
+                const dx = x - w.x;
+                const dy = y - (w.currentY + 40); // 頭の中心で判定
+                if(Math.abs(dx) < 60 && Math.abs(dy) < 60) {
+                    w.state = 'hit';
+                    w.targetY = CONFIG.ANIM.WANI_HIDE_Y; // 叩かれたら奥へ隠れる
+                    w.timer = 200;
+                    this.score += CONFIG.LEVELS[this.currentLevel].points;
+                    document.getElementById('ui-score').innerText = this.score;
+                    if(navigator.vibrate) navigator.vibrate(50);
+                }
+            }
+        });
+    },
+
+    endGame() {
+        this.state = 'result';
+        if(this.timerId) clearInterval(this.timerId);
+        if(this.aniId) cancelAnimationFrame(this.aniId);
+        
+        document.getElementById('final-score').innerText = this.score;
+        const isNew = this.score > this.highScore;
+        if(isNew) {
+            this.highScore = this.score;
+            localStorage.setItem('wani_v1_7_best', this.highScore);
+        }
+        document.getElementById('new-record-label').style.display = isNew ? 'block' : 'none';
+        
+        setTimeout(() => this.changeScreen('screen-result'), 100);
+    },
+
+    retry() {
+        this.startGame(this.currentLevel);
+    },
+
+    loop() {
+        if(this.state !== 'playing') return;
+        this.update();
+        this.draw();
+        this.aniId = requestAnimationFrame(() => this.loop());
+    },
+
+    update() {
+        const conf = CONFIG.LEVELS[this.currentLevel];
+        if(Math.random() < conf.spawnRate) {
+            const idles = this.wanis.filter(w => w.state === 'down');
+            if(idles.length > 0) {
+                const w = idles[Math.floor(Math.random()*idles.length)];
+                w.state = 'up';
+                w.targetY = CONFIG.ANIM.WANI_POP_Y; // 手前へ飛び出す
+                w.timer = conf.upTime;
+            }
+        }
+
+        this.wanis.forEach(w => {
+            let speed = (w.state === 'up') ? CONFIG.ANIM.UP_SPEED : CONFIG.ANIM.DOWN_SPEED;
+            w.currentY += (w.targetY - w.currentY) * speed;
+            if(w.state !== 'down') {
+                w.timer -= 16;
+                if(w.timer <= 0) {
+                    w.state = 'down';
+                    w.targetY = CONFIG.ANIM.WANI_HIDE_Y;
+                }
+            }
+        });
+    },
+
+    draw() {
+        const ctx = this.ctx;
+        ctx.clearRect(0,0,800,450);
+
+        // 奥の壁
+        ctx.fillStyle = "#333";
+        ctx.fillRect(0, 0, 800, 120);
+
+        this.wanis.forEach(w => {
+            // 穴
+            ctx.fillStyle = "#000";
+            ctx.beginPath();
+            ctx.ellipse(w.x, w.baseY, 60, 25, 0, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.save();
+            ctx.beginPath();
+            // ★クリッピングを「穴の中心より手前（下）」に限定
+            ctx.rect(w.x - 70, w.baseY, 140, 300); 
+            ctx.clip();
+
+            // ★浮き解消：胴体を穴の底(baseY)から頭(currentY)まで繋げる
+            ctx.fillStyle = (w.state === 'hit') ? "#f00" : "#2a2";
+            let bodyH = w.currentY - w.baseY;
+            if(bodyH > 0) {
+                ctx.fillRect(w.x - 45, w.baseY, 90, bodyH);
+            }
+
+            // 頭の描画
+            ctx.beginPath();
+            ctx.roundRect(w.x - 45, w.currentY, 90, 80, [10, 10, 40, 40]);
+            ctx.fill();
+
+            // 少しワニっぽく顔を配置
+            ctx.fillStyle = "#fff";
+            ctx.beginPath(); ctx.arc(w.x - 20, w.currentY + 25, 12, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(w.x + 20, w.currentY + 25, 12, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#000";
+            ctx.beginPath(); ctx.arc(w.x - 20, w.currentY + 25, 4, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(w.x + 20, w.currentY + 25, 4, 0, Math.PI*2); ctx.fill();
+
+            // 口（赤い部分）
+            ctx.fillStyle = "#e74c3c";
+            ctx.beginPath(); ctx.roundRect(w.x - 30, w.currentY + 50, 60, 20, 10); ctx.fill();
+
+            if(w.state === 'hit') {
+                ctx.fillStyle = "#fff";
+                ctx.font = "bold 25px Arial";
+                ctx.fillText("!!", w.x + 30, w.currentY + 10);
+            }
+            ctx.restore();
+        });
+
+        // 手前の地面
+        ctx.fillStyle = "#444";
+        ctx.fillRect(0, 380, 800, 70);
+    }
+};
+
+GameEngine.init();
+</script>
+</body>
+</html>
